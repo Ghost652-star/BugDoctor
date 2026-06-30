@@ -77,14 +77,13 @@ class OpenAICompatClient(LLMClient):
 
             if delta.tool_calls:
                 for tc in delta.tool_calls:
-                    tid = tc.id or ""
                     if tc.id:
-                        pending[tid] = {"name": tc.function.name or "", "arguments": ""}
-                        yield ToolCallStart(tid, tc.function.name or "")
-                    elif tc.function and tc.function.arguments:
-                        for key in pending:
-                            pending[key]["arguments"] += tc.function.arguments
-                            yield ToolCallDelta(key, tc.function.arguments)
+                        pending[tc.id] = {"name": tc.function.name or "", "arguments": ""}
+                        yield ToolCallStart(tc.id, tc.function.name or "")
+                    elif tc.function and tc.function.arguments and pending:
+                        last_id = next(reversed(pending))
+                        pending[last_id]["arguments"] += tc.function.arguments
+                        yield ToolCallDelta(last_id, tc.function.arguments)
 
             if choice.finish_reason == "tool_calls":
                 import json

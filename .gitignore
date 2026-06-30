@@ -4,6 +4,7 @@
 # 课程文档
 *.docx
 *.docx.txt
+docs/
 
 # Python
 __pycache__/

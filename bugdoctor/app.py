@@ -1,16 +1,27 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from bugdoctor.chat.session import ChatSession, DEFAULT_SYSTEM_PROMPT
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+from bugdoctor.agent.loop import Agent, ErrorEvent, StreamText, ToolResultEvent, ToolUseEvent, TurnComplete
 from bugdoctor.config import load_config
 from bugdoctor.conversation.manager import ConversationManager
 from bugdoctor.llm.client import LLMError, create_client
+from bugdoctor.prompts.system import build_system_prompt
+from bugdoctor.tools.factory import create_registry
 
 
-async def run_app(config_path: Path | None = None) -> None:
-    """终端交互入口：组装组件 → 等待输入 → 逐字输出"""
-    config = load_config(Path("."), config_path)
+def _preview(text: str, max_len: int = 400) -> str:
+    text = text.replace("\r\n", "\n")
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."
+
+
+async def run_app(project: Path, config_path: Path | None = None) -> None:
+    config = load_config(project, config_path)
 
     try:
         client = create_client(config.llm)
@@ -19,16 +30,21 @@ async def run_app(config_path: Path | None = None) -> None:
         print("请在 bugdoctor/config.yaml 中设置 llm.api_key，或设置环境变量 BUGDOCTOR_API_KEY")
         return
 
-    # 组装：对话历史 + 聊天流程
+    registry = create_registry(config.project_root)
     conversation = ConversationManager()
-    chat = ChatSession(
+    system_prompt = build_system_prompt(str(config.project_root))
+    agent = Agent(
         client=client,
+        registry=registry,
         conversation=conversation,
-        system_prompt=DEFAULT_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
+        max_iterations=config.max_agent_iterations,
     )
 
     print(f"BugDoctor — model: {config.llm.model}")
-    print("多轮对话已就绪。输入 quit 退出。\n")
+    print(f"Project: {config.project_root}")
+    print(f"Tools: {', '.join(registry.list_names())}")
+    print("Paste an error or describe a bug. Type quit to exit.\n")
 
     while True:
         try:
@@ -44,6 +60,15 @@ async def run_app(config_path: Path | None = None) -> None:
             break
 
         print("assistant> ", end="", flush=True)
-        async for chunk in chat.send(user_input):
-            print(chunk, end="", flush=True)
-        print("\n")
+        async for event in agent.run(user_input):
+            if isinstance(event, StreamText):
+                print(event.text, end="", flush=True)
+            elif isinstance(event, ToolUseEvent):
+                print(f"\n[tool] {event.tool_name}({event.arguments})")
+            elif isinstance(event, ToolResultEvent):
+                tag = "ERROR" if event.is_error else "result"
+                print(f"[{tag}] {_preview(event.content)}")
+            elif isinstance(event, TurnComplete):
+                print("\n")
+            elif isinstance(event, ErrorEvent):
+                print(f"\n[agent error] {event.message}\n")
