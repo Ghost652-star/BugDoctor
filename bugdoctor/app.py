@@ -5,6 +5,10 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+# Windows PowerShell / CMD 都需要 colorama 才能正确渲染 ANSI 颜色
+import colorama
+colorama.init()
+
 from bugdoctor.agent.loop import Agent, ErrorEvent, StreamText, ToolResultEvent, ToolUseEvent, TurnComplete
 from bugdoctor.config import load_config
 from bugdoctor.conversation.manager import ConversationManager
@@ -13,7 +17,20 @@ from bugdoctor.prompts.system import build_system_prompt
 from bugdoctor.tools.factory import create_registry
 
 
-def _preview(text: str, max_len: int = 400) -> str:
+# ── 终端颜色（colorama 转换后跨平台可用） ────────────────
+
+class Style:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    CYAN = "\033[36m"
+    BLUE = "\033[34m"
+    YELLOW = "\033[33m"
+    GREEN = "\033[32m"
+    RED = "\033[31m"
+
+
+def _preview(text: str, max_len: int = 300) -> str:
     text = text.replace("\r\n", "\n")
     if len(text) <= max_len:
         return text
@@ -63,8 +80,7 @@ async def run_app(project: Path, config_path: Path | None = None) -> None:
     print(f"BugDoctor — model: {config.llm.model}")
     print(f"Project: {config.project_root}")
     print(f"Tools: {', '.join(registry.list_names())}")
-    print("Paste an error or describe a bug. Multi-line: paste, then press Enter on an empty line to send.")
-    print("Type quit to exit.\n")
+    print("粘贴错误信息或描述 bug，空行发送，输入 quit 退出。\n")
 
     while True:
         try:
@@ -79,16 +95,36 @@ async def run_app(project: Path, config_path: Path | None = None) -> None:
             print("Bye.")
             break
 
-        print("assistant> ", end="", flush=True)
+        buffered_text: list[str] = []
+        has_tool_calls = False
+
         async for event in agent.run(user_input):
             if isinstance(event, StreamText):
-                print(event.text, end="", flush=True)
+                buffered_text.append(event.text)
+                # 思考过程：暗色，不抢眼
+                print(f"{Style.DIM}{event.text}{Style.RESET}", end="", flush=True)
+
             elif isinstance(event, ToolUseEvent):
-                print(f"\n[tool] {event.tool_name}({event.arguments})")
+                has_tool_calls = True
+                args_preview = _preview(str(event.arguments), 150)
+                print(f"\n{Style.CYAN}  🔧 {event.tool_name}{Style.RESET} "
+                      f"{Style.DIM}{args_preview}{Style.RESET}")
+
             elif isinstance(event, ToolResultEvent):
-                tag = "ERROR" if event.is_error else "result"
-                print(f"[{tag}] {_preview(event.content)}")
+                tag = "✗" if event.is_error else "✓"
+                color = Style.RED if event.is_error else Style.BLUE
+                preview = _preview(event.content).replace('\n', '\n    ')
+                print(f"{color}  {tag} {preview}{Style.RESET}")
+
             elif isinstance(event, TurnComplete):
-                print("\n")
+                if not has_tool_calls:
+                    # 最终回答：绿色加粗框出来
+                    full_text = "".join(buffered_text)
+                    if full_text.strip():
+                        print(f"\n\n{Style.BOLD}{Style.GREEN}{'─' * 60}{Style.RESET}")
+                        print(f"{Style.BOLD}{full_text}{Style.RESET}")
+                        print(f"{Style.BOLD}{Style.GREEN}{'─' * 60}{Style.RESET}")
+                print()
+
             elif isinstance(event, ErrorEvent):
-                print(f"\n[agent error] {event.message}\n")
+                print(f"\n{Style.BOLD}{Style.RED}[错误] {event.message}{Style.RESET}\n")

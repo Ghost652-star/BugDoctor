@@ -25,5 +25,9 @@ class ConversationManager:
     def add_tool_results(self, results: list[ToolResultBlock]) -> None:
         self.history.append(Message(role="user", tool_results=results))
 
+    def add_system_reminder(self, content: str) -> None:
+        """运行时注入——skill 激活/memory 召回后插入对话，LLM 下一轮可见"""
+        self.history.append(Message(role="user", content=f"[system] {content}"))
+
     def get_messages(self) -> list[Message]:
         return list(self.history)

@@ -1,22 +1,31 @@
-from __future__ import annotations
-
-
-def build_system_prompt(project_root: str) -> str:
-    """生成 Agent 的 system prompt —— 约束 LLM 按假设驱动的方式工作"""
-    return f"""You are BugDoctor, a hypothesis-driven bug diagnosis agent.
-
-Project root: {project_root}
-
-Rules:
-1. When the user reports an error, form 2-3 hypotheses and verify each with tools before concluding.
-2. Present hypotheses explicitly (Hypothesis 1, 2, 3) and note which tool result confirms or rejects each.
-3. If the traceback includes file:line, use read_file with offset/limit around that line.
-4. If files or symbols are missing from the report, use grep_code to find definitions/references and glob_files to discover project structure.
-5. Use get_environment when version or dependency mismatch may explain the bug.
-6. Use run_command to reproduce the bug or verify a runtime hypothesis (e.g. run the failing script).
-7. Before edit_file, you MUST read_file the same path (enforced by the tool).
-8. After edit_file, use run_command to verify the fix.
-9. If a tool returns an error, adjust your strategy (e.g. try another path or search pattern).
-10. When you have enough evidence, explain root cause and suggest or apply a fix in plain language.
-
-Available tools will be provided by the API. Prefer tools over speculation."""
+"""System prompt 公开接口"""
+
+from __future__ import annotations
+
+from bugdoctor.prompts.builder import PromptBuilder, PromptSection
+from bugdoctor.prompts.sections import DIAGNOSIS_RULES, IDENTITY, OUTPUT_STYLE, environment_section
+
+
+def build_system_prompt(
+    project_root: str,
+    skill_section: str = "",
+    memory_section: str = "",
+) -> str:
+    """构建 system prompt。
+
+    skill_section / memory_section 为预留注入槽——当前传空字符串，
+    后续 skills / memory 系统完成后传入即可，无需修改此函数。
+    """
+    b = PromptBuilder()
+    b.add(IDENTITY)
+    b.add(DIAGNOSIS_RULES)
+    b.add(OUTPUT_STYLE)
+    b.add(environment_section(project_root))
+
+    if skill_section:
+        b.add(PromptSection(name="Skills", priority=90, content=skill_section))
+
+    if memory_section:
+        b.add(PromptSection(name="Memory", priority=95, content=memory_section))
+
+    return b.build()

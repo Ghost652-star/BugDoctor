@@ -11,18 +11,27 @@ from bugdoctor.tools.sandbox import resolve_in_project
 
 
 class ReadFileParams(BaseModel):
-    """read_file 工具的参数模型 —— pydantic 自动生成 JSON Schema"""
-    file_path: str = Field(description="要读取的文件路径（相对于项目根目录）")
-    offset: int = Field(default=0, description="从第几行开始（0-based）")
-    limit: int = Field(default=200, description="最多读取行数")
+    file_path: str = Field(
+        description="File path relative to project root (e.g. 'main.py', 'src/app.py'). Not an absolute path.",
+    )
+    offset: int = Field(
+        default=0,
+        description="0-based line number to start reading. Use with limit to read around a traceback line.",
+    )
+    limit: int = Field(
+        default=200,
+        description="Maximum lines to return (default 200). Increase only when necessary.",
+    )
 
 
 class ReadFileTool(Tool):
-    """读取项目文件内容，返回带行号的文本"""
     name = "read_file"
     description = (
-        "Read a source file with line numbers. Use offset/limit to read around an error line "
-        "instead of loading the entire file."
+        "Read a source file inside the project with line numbers. "
+        "file_path is relative to project root. Default limit is 200 lines — use offset/limit "
+        "to read around the error line in large files. "
+        "Prefer this tool over run_command (cat/type/more) for reading code. "
+        "You MUST read_file a file before edit_file on the same path."
     )
     params_model = ReadFileParams
     risk = "read"

@@ -11,17 +11,24 @@ from bugdoctor.tools.sandbox import resolve_in_project
 
 
 class EditFileParams(BaseModel):
-    file_path: str = Field(description="Path to the file to edit (relative to project root)")
-    old_string: str = Field(description="Exact text to find (must appear exactly once in the file)")
-    new_string: str = Field(description="Replacement text")
+    file_path: str = Field(
+        description="File path relative to project root.",
+    )
+    old_string: str = Field(
+        description="Exact text to find and replace. Must appear exactly once — copy from read_file output.",
+    )
+    new_string: str = Field(
+        description="Replacement text.",
+    )
 
 
 class EditFileTool(Tool):
     name = "edit_file"
     description = (
         "Apply a surgical fix by replacing an exact string in a source file. "
-        "old_string must match exactly once. You MUST read_file the target file first — "
-        "this tool will reject edits otherwise. Use after diagnosing root cause."
+        "old_string must match exactly once (copy precisely from read_file). "
+        "You MUST read_file the target file first — this tool rejects edits otherwise. "
+        "Use only after diagnosing root cause. After editing, run_command to verify the fix."
     )
     params_model = EditFileParams
     risk = "write"

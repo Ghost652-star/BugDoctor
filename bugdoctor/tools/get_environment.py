@@ -24,17 +24,18 @@ MAX_FILE_LINES = 30
 class GetEnvironmentParams(BaseModel):
     language: str = Field(
         default="auto",
-        description="Focus hint: 'auto', 'python', or 'java'. auto detects from project files.",
+        description="'auto' (detect from project files), 'python', or 'java'.",
     )
 
 
 class GetEnvironmentTool(Tool):
     name = "get_environment"
     description = (
-        "Collect runtime and dependency information for the project: platform, "
-        "interpreter version, and dependency files (requirements.txt, pyproject.toml, "
-        "pom.xml, etc.). Use when the user did not provide environment details or when "
-        "a bug may involve version or dependency mismatch."
+        "Collect structured environment info: platform, interpreter version, and dependency files "
+        "(requirements.txt, pyproject.toml, pom.xml, etc.). "
+        "Use when the user did not provide environment details or a bug may involve version/dependency mismatch. "
+        "Prefer this over run_command for environment overview. "
+        "Use run_command only for reproducing the actual failing script."
     )
     params_model = GetEnvironmentParams
     risk = "read"

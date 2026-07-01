@@ -13,17 +13,22 @@ MAX_OUTPUT_CHARS = 8000
 
 
 class RunCommandParams(BaseModel):
-    command: str = Field(description="Shell command to run, e.g. 'python main.py' or 'python --version'")
-    timeout: int = Field(default=60, description="Timeout in seconds (max 120)")
+    command: str = Field(
+        description="Shell command to run, e.g. 'python main.py'. cwd is already the project root — do not cd.",
+    )
+    timeout: int = Field(
+        default=60,
+        description="Timeout in seconds (max 120).",
+    )
 
 
 class RunCommandTool(Tool):
     name = "run_command"
     description = (
-        "Run a shell command inside the project directory to reproduce a bug, "
-        "check runtime behavior, or verify a hypothesis. "
-        "Use after reading code when you need to confirm what actually happens at runtime. "
-        "Returns stdout, stderr, and exit code."
+        "Run a shell command with cwd set to the project root. "
+        "Use to reproduce a bug, verify a runtime hypothesis, or confirm a fix after edit_file. "
+        "Do NOT use cat/type/more/grep to read or search code — use read_file, grep_code, glob_files instead. "
+        "Returns exit_code, stdout, and stderr."
     )
     params_model = RunCommandParams
     risk = "run"

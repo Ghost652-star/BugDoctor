@@ -14,19 +14,31 @@ MAX_CONTEXT = 5
 
 
 class GrepCodeParams(BaseModel):
-    pattern: str = Field(description="Regex to search for, e.g. 'def get_data' or 'TypeError'")
-    path: str = Field(default=".", description="Directory to search, relative to project root")
-    include: str = Field(default="", description="Filename glob filter, e.g. '*.py' or '*.java'")
-    context: int = Field(default=0, description="Lines of context before/after each match (0-5)")
+    pattern: str = Field(
+        description="Regex pattern to search, e.g. 'def get_data', 'load_payload', or 'TypeError'.",
+    )
+    path: str = Field(
+        default=".",
+        description="Directory to search, relative to project root.",
+    )
+    include: str = Field(
+        default="",
+        description="Optional filename filter as glob, e.g. '*.py' or '*.java'. Empty means all text files.",
+    )
+    context: int = Field(
+        default=0,
+        description="Lines of context before/after each match (0-5). Use 1-2 to see surrounding code.",
+    )
 
 
 class GrepCodeTool(Tool):
     name = "grep_code"
     description = (
-        "Search file contents in the project using a regex pattern. "
-        "Use to find function definitions, variable references, or error strings "
-        "when the traceback mentions a symbol but not its definition file. "
-        "Returns matches as path:line:content. Read-only, non-destructive."
+        "Search file contents by regex inside the project. "
+        "Use when the traceback mentions a symbol, error text, or import but not where it is defined. "
+        "Returns matches as path:line:content (up to 100 matches). Read-only. "
+        "Prefer grep_code over run_command (grep/findstr) for searching code. "
+        "After finding a match, use read_file to inspect the full function or block."
     )
     params_model = GrepCodeParams
     risk = "read"

@@ -12,17 +12,24 @@ MAX_RESULTS = 200
 
 
 class GlobFilesParams(BaseModel):
-    pattern: str = Field(description="Glob pattern, e.g. '**/*.py' or '**/*.java'")
-    path: str = Field(default=".", description="Search root relative to project root")
+    pattern: str = Field(
+        description="Glob pattern with ** for recursion, e.g. '**/*.py', '**/*.java', '**/test_*.py'.",
+    )
+    path: str = Field(
+        default=".",
+        description="Directory to search, relative to project root. Default '.' searches the whole project.",
+    )
 
 
 class GlobFilesTool(Tool):
     name = "glob_files"
     description = (
-        "Find files matching a glob pattern inside the project. "
-        "Use when you need project structure or a class of files "
-        "(e.g. all Python sources, all tests) — especially when the traceback "
-        "does not list every relevant file. Read-only, non-destructive."
+        "Find files by name/path pattern inside the project (glob). "
+        "Use when you need project structure or a file class (all .py, all tests) — "
+        "especially when the traceback does not list every relevant file. "
+        "Returns up to 200 paths, one per line. Read-only. "
+        "Use glob_files to locate files, then read_file to inspect contents. "
+        "Do not use run_command (dir/find/ls) for this."
     )
     params_model = GlobFilesParams
     risk = "read"

@@ -3,11 +3,9 @@ import asyncio
 import sys
 from pathlib import Path
 
-# Fix Windows GBK terminal for emoji output
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-
-# Add project to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from bugdoctor.agent.loop import Agent, StreamText, ToolUseEvent, ToolResultEvent, TurnComplete, ErrorEvent
 from bugdoctor.config import load_config
 from bugdoctor.conversation.manager import ConversationManager
@@ -34,7 +32,6 @@ async def run_test(project_path: str, bug_description: str) -> None:
     print(f"{'='*60}")
     print(f"Project: {project.name}")
     print(f"Tools: {', '.join(registry.list_names())}")
-    print(f"Input: {bug_description[:100]}...")
     print(f"{'='*60}")
 
     async for event in agent.run(bug_description):
@@ -57,17 +54,17 @@ async def run_test(project_path: str, bug_description: str) -> None:
 def main():
     samples_dir = Path(__file__).resolve().parent.parent / "samples"
     tests = [
-        # (project_dir, bug_description)
-        ("demo_logic_bug", (
-            "I ordered 10 items at $100 each. The documentation says 10+ items "
-            "get 10% discount, so total should be $900.00. But the program "
-            "printed $1000.00 — no discount was applied. Please find and fix the bug."
-        )),
-        ("demo_state_leak", (
-            "The program processes two batches. Batch 1 processes [1,2,3] and "
-            "correctly says 'total historial count: 3'. Batch 2 processes [4,5] — "
-            "it should say 'total historial count: 2' but instead says 5. "
-            "Looks like state is leaking between batches. Find and fix the bug."
+        ("demo_data_pipeline", (
+            "Traceback (most recent call last):\n"
+            '  File "main.py", line 43, in <module>\n'
+            "    run_pipeline(csv_file)\n"
+            '  File "main.py", line 30, in run_pipeline\n'
+            "    transformed = transform_records(raw_records, multiplier=2.0)\n"
+            '  File "pipeline/transformer.py", line 303, in transform_records\n'
+            "    classified = [_apply_scale_factor(rec, multiplier) for rec in classified]\n"
+            '  File "pipeline/transformer.py", line 221, in _apply_scale_factor\n'
+            "    scaled = raw_value * factor * weight\n"
+            "TypeError: can't multiply sequence by non-int of type 'float'"
         )),
     ]
 
