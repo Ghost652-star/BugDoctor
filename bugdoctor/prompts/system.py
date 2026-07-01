@@ -12,9 +12,6 @@ def build_system_prompt(
     memory_section: str = "",
 ) -> str:
     """构建 system prompt。
-
-    skill_section / memory_section 为预留注入槽——当前传空字符串，
-    后续 skills / memory 系统完成后传入即可，无需修改此函数。
     """
     b = PromptBuilder()
     b.add(IDENTITY)

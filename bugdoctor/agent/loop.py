@@ -1,11 +1,4 @@
 """ReAct Agent 循环 —— 假设驱动的 Bug 诊断
-
-核心流程：
-  用户输入 → for 循环(调 LLM → LLM 自主决定调工具还是结束)
-  - 纯文字回复 → 无工具调用 → 自然结束
-  - 有工具调用 → 逐个执行 → 结果写回对话 → 下一轮 LLM 据此重新判断
-
-代码不做 if-else 决策——调哪个工具、何时结束，全部由 LLM 通过原生 tool_calling 决定。
 """
 
 from __future__ import annotations

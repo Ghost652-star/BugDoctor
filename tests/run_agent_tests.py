@@ -18,7 +18,7 @@ async def run_test(project_path: str, bug_description: str) -> None:
     project = Path(project_path).resolve()
     config = load_config(project)
     client = create_client(config.llm)
-    registry = create_registry(config.project_root)
+    registry, _read_tracker = create_registry(config.project_root)
     conversation = ConversationManager()
     system_prompt = build_system_prompt(str(config.project_root))
     agent = Agent(

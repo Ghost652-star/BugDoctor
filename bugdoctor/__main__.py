@@ -21,8 +21,26 @@ def main() -> None:
         default=None,
         help="Optional config.yaml path",
     )
+    parser.add_argument(
+        "--new",
+        action="store_true",
+        help="Start a new session (skip session picker)",
+    )
+    parser.add_argument(
+        "--session",
+        type=str,
+        default=None,
+        help="Resume a specific session id",
+    )
     args = parser.parse_args()
-    asyncio.run(run_app(args.project.resolve(), args.config))
+    asyncio.run(
+        run_app(
+            args.project.resolve(),
+            args.config,
+            new_session=args.new,
+            session_id=args.session,
+        )
+    )
 
 
 if __name__ == "__main__":

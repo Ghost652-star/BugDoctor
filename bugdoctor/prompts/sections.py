@@ -88,7 +88,9 @@ def environment_section(project_root: str) -> PromptSection:
         priority=70,
         content=f"""\
 # Environment
-- Project root: {project_root}
+- Workspace: {project_root}
 - Platform: {platform.system()} {platform.release()}
-- Python: {sys.version.split()[0]} ({sys.version.split()[1]})""",
+- Python: {sys.version.split()[0]} ({sys.version.split()[1]})
+
+You can explore any subdirectory within this workspace. When a user mentions a project or file path, use glob_files and read_file to navigate there — do not assume the code is at the workspace root.""",
     )
