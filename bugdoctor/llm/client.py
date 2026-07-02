@@ -43,7 +43,11 @@ class OpenAICompatClient(LLMClient):
         if not config.api_key:
             raise LLMError("API key missing. Set BUGDOCTOR_API_KEY or config.yaml llm.api_key")
         self._config = config
-        self._client = AsyncOpenAI(api_key=config.api_key, base_url=config.base_url)
+        self._client = AsyncOpenAI(
+            api_key=config.api_key,
+            base_url=config.base_url,
+            timeout=120.0,
+        )
 
     async def stream(
         self,

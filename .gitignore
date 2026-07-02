@@ -17,7 +17,11 @@ bugdoctor/config.yaml
 bugdoctor/config.local.yaml
 .bugdoctor/
 
-# 测试样本
+# 测试样本与本地测试项目（不提交）
+tests/
 samples/
 output/
+tests/output/
+tests/fixtures/
+tests/memory_workspace/
 CLAUDE.md

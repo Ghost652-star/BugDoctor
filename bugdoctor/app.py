@@ -12,13 +12,13 @@ from colorama import Fore, Style as ColoramaStyle
 colorama.init()
 
 from bugdoctor.agent.loop import Agent, ErrorEvent, StreamText, ToolResultEvent, ToolUseEvent, TurnComplete
-from bugdoctor.config import load_config
+from bugdoctor.config import app_data_root, load_config
 from bugdoctor.conversation.manager import ConversationManager
 from bugdoctor.llm.client import LLMError, create_client
 from bugdoctor.memory.replay import print_restored_history
 from bugdoctor.memory.session import SessionStore, choose_session_interactive
-from bugdoctor.memory.store import MemoryStore
 from bugdoctor.memory.recall import recall_relevant
+from bugdoctor.memory.store import MemoryMaintainResult, MemoryStore
 from bugdoctor.prompts.system import build_system_prompt
 from bugdoctor.tools.factory import create_registry
 
@@ -70,6 +70,38 @@ def _print_final_answer(text: str) -> None:
     print(f"{Style.BOLD}{Style.GREEN}{'─' * 60}{Style.RESET}")
 
 
+def _turn_diagnosis_slice(history_slice: list, fallback_user: str) -> tuple[str, str]:
+    """从本轮新增消息中提取用户报错与最终诊断结论。"""
+    user_reports = [
+        msg.content
+        for msg in history_slice
+        if msg.role == "user"
+        and msg.content
+        and not msg.tool_results
+        and not msg.content.startswith("<system-reminder>")
+    ]
+    diagnosis_texts = [
+        msg.content
+        for msg in history_slice
+        if msg.role == "assistant" and msg.content and not msg.tool_uses
+    ]
+    user_report = user_reports[0] if user_reports else fallback_user
+    diagnosis = diagnosis_texts[-1] if diagnosis_texts else ""
+    return user_report, diagnosis
+
+
+def _print_memory_result(result: MemoryMaintainResult) -> None:
+    if result.action == "create":
+        print(f"{Style.GREEN}记忆已创建: {result.target}{Style.RESET}")
+    elif result.action == "update":
+        print(f"{Style.GREEN}记忆已更新: {result.target}{Style.RESET}")
+    elif result.action == "delete":
+        print(f"{Style.YELLOW}记忆已删除: {result.target}{Style.RESET}")
+    elif result.action == "error":
+        print(f"{Style.YELLOW}记忆写入失败: {result.reason}{Style.RESET}")
+    # skip: 静默
+
+
 async def run_app(
     project: Path,
     config_path: Path | None = None,
@@ -81,14 +113,16 @@ async def run_app(
 
     try:
         client = create_client(config.llm)
+        recall_client = create_client(config.recall_client_config())
     except LLMError as exc:
         print(f"配置错误: {exc}")
         print("请在 bugdoctor/config.yaml 中设置 llm.api_key，或设置环境变量 BUGDOCTOR_API_KEY")
         return
 
     registry, read_tracker = create_registry(config.project_root)
-    session_store = SessionStore(config.project_root)
-    memory_store = MemoryStore()
+    data_root = app_data_root()
+    session_store = SessionStore(data_root)
+    memory_store = MemoryStore(data_root)
 
     if session_id:
         if not session_store.exists(session_id):
@@ -120,8 +154,11 @@ async def run_app(
     )
 
     print(f"BugDoctor — model: {config.llm.model}")
+    recall_cfg = config.recall_client_config()
+    if config.recall_llm is not None:
+        print(f"Recall model: {recall_cfg.model}")
     print(f"Workspace: {config.project_root}")
-    print(f"Session: {active_session_id}")
+    print(f"Session: {active_session_id}  |  数据: {data_root / '.bugdoctor'}")
     print(f"Tools: {', '.join(registry.list_names())}")
     print("粘贴错误信息或描述 bug，空行发送，输入 quit 退出。\n")
 
@@ -143,12 +180,20 @@ async def run_app(
         has_tool_calls = False
         turn_ok = False
 
-        # ── 检索相关 Bug 模式记忆，注入到消息上下文 ──
-        memory_section = await recall_relevant(user_input, memory_store, client)
-        if memory_section:
-            conversation.add_system_reminder(memory_section)
+        # ── 检索相关记忆（selector LLM），注入顺序在 agent.run 内：user → reminder ──
+        print(f"{Style.THINKING}检索相关记忆...{Style.RESET}", flush=True)
+        recall = await recall_relevant(user_input, memory_store, recall_client)
+        if recall.status == "hit":
+            print(f"{Style.THINKING}  已匹配历史记忆，注入上下文{Style.RESET}")
+        elif recall.status == "timeout":
+            print(f"{Style.YELLOW}  记忆检索超时，跳过召回继续诊断{Style.RESET}")
+        elif recall.status == "error":
+            print(f"{Style.YELLOW}  记忆检索失败，跳过召回继续诊断{Style.RESET}")
+        else:
+            print(f"{Style.THINKING}  无匹配记忆{Style.RESET}")
+        memory_reminder = recall.reminder or None
 
-        async for event in agent.run(user_input):
+        async for event in agent.run(user_input, memory_reminder=memory_reminder):
             if isinstance(event, StreamText):
                 pending_stream.append(event.text)
 
@@ -182,30 +227,14 @@ async def run_app(
             new_messages = conversation.history[history_len:]
             session_store.append_messages(active_session_id, new_messages)
 
-            # ── 诊断结束后询问是否记住 ──
+            # ── 诊断结束后自动维护记忆库（extract LLM）──
             if has_tool_calls:
-                try:
-                    choice = input(f"\n{Style.YELLOW}记住这次诊断？[y/N]: {Style.RESET}").strip()
-                except (EOFError, KeyboardInterrupt):
-                    choice = ""
-                if choice.lower() == "y":
-                    user_reports = [
-                        msg.content
-                        for msg in conversation.history[history_len:]
-                        if msg.role == "user" and msg.content and not msg.tool_results
-                    ]
-                    diagnosis_texts = [
-                        msg.content
-                        for msg in conversation.history[history_len:]
-                        if msg.role == "assistant" and msg.content and not msg.tool_uses
-                    ]
-                    user_report = user_reports[0] if user_reports else user_input
-                    diagnosis_conclusion = diagnosis_texts[-1] if diagnosis_texts else ""
-
-                    if diagnosis_conclusion:
-                        print(f"{Style.THINKING}提取中...{Style.RESET}")
-                        name = await memory_store.extract_and_save(client, user_report, diagnosis_conclusion)
-                        if name:
-                            print(f"{Style.GREEN}已保存到记忆: {name}{Style.RESET}")
-                        else:
-                            print(f"{Style.THINKING}没有新的模式需要记录。{Style.RESET}")
+                user_report, diagnosis_conclusion = _turn_diagnosis_slice(new_messages, user_input)
+                if diagnosis_conclusion:
+                    print(f"{Style.THINKING}维护记忆库...{Style.RESET}")
+                    result = await memory_store.extract_and_maintain(
+                        client,
+                        user_report,
+                        diagnosis_conclusion,
+                    )
+                    _print_memory_result(result)

@@ -21,6 +21,16 @@ class AppConfig:
     llm: LLMConfig
     project_root: Path
     max_agent_iterations: int = 30
+    recall_llm: LLMConfig | None = None
+
+    def recall_client_config(self) -> LLMConfig:
+        """记忆检索专用 LLM；未配置时回退到主 llm。"""
+        return self.recall_llm or self.llm
+
+
+def app_data_root() -> Path:
+    """BugDoctor 自身项目根（`bugdoctor/` 的上一级；会话/记忆写在此下的 `.bugdoctor/`）。"""
+    return Path(__file__).resolve().parent.parent
 
 
 def _default_config_paths(project_root: Path) -> list[Path]:
@@ -33,31 +43,52 @@ def _default_config_paths(project_root: Path) -> list[Path]:
     ]
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    merged = dict(base)
+    for key, value in override.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _parse_llm_config(data: dict, *, env_prefix: str = "BUGDOCTOR") -> LLMConfig:
+    return LLMConfig(
+        provider=data.get("provider", "openai-compat"),
+        model=data.get("model", os.getenv(f"{env_prefix}_MODEL", "deepseek-v4-pro")),
+        api_key=data.get("api_key", os.getenv(f"{env_prefix}_API_KEY", "")),
+        base_url=data.get(
+            "base_url",
+            os.getenv(f"{env_prefix}_BASE_URL", "https://api.deepseek.com"),
+        ),
+        max_output_tokens=int(data.get("max_output_tokens", 4096)),
+    )
+
+
 def load_config(project_root: Path, config_path: Path | None = None) -> AppConfig:
     data: dict = {}
-    chosen: Path | None = None
 
     if config_path and config_path.exists():
-        chosen = config_path
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     else:
         for candidate in _default_config_paths(project_root):
             if candidate.exists():
-                chosen = candidate
-                break
+                layer = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
+                data = _deep_merge(data, layer)
 
-    if chosen:
-        data = yaml.safe_load(chosen.read_text(encoding="utf-8")) or {}
+    llm = _parse_llm_config(data.get("llm", {}))
 
-    llm_data = data.get("llm", {})
-    llm = LLMConfig(
-        provider=llm_data.get("provider", "openai-compat"),
-        model=llm_data.get("model", os.getenv("BUGDOCTOR_MODEL", "deepseek-v4-pro")),
-        api_key=llm_data.get("api_key", os.getenv("BUGDOCTOR_API_KEY", "")),
-        base_url=llm_data.get("base_url", os.getenv("BUGDOCTOR_BASE_URL", "https://api.deepseek.com")),
-        max_output_tokens=int(llm_data.get("max_output_tokens", 4096)),
-    )
+    recall_llm: LLMConfig | None = None
+    if "recall_llm" in data:
+        recall_llm = _parse_llm_config(
+            data.get("recall_llm", {}),
+            env_prefix="BUGDOCTOR_RECALL",
+        )
+
     return AppConfig(
         llm=llm,
         project_root=project_root.resolve(),
         max_agent_iterations=int(data.get("max_agent_iterations", 30)),
+        recall_llm=recall_llm,
     )

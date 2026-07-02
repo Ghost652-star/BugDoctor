@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from dataclasses import dataclass
+from pathlib import Path
 
 from bugdoctor.conversation.manager import ConversationManager
 from bugdoctor.llm.client import LLMClient
 from bugdoctor.llm.events import StreamEnd, TextDelta
 from bugdoctor.memory.store import MemoryStore
+
+RECALL_TIMEOUT_SEC = 30
 
 SELECTOR_SYSTEM_PROMPT = (
     "You are selecting memories that will help BugDoctor diagnose a bug. "
@@ -27,32 +32,53 @@ MEMORY_INJECTION_HEADER = """\
 
 """
 
-MEMORY_INJECTION_FOOTER = """\
+MEMORY_INJECTION_FOOTER = """
 
 ---
 注意：以上记忆可能已过时，请以当前代码为准进行验证。"""
+
+
+@dataclass
+class RecallResult:
+    reminder: str = ""
+    status: str = "empty"  # hit | empty | timeout | error
 
 
 async def recall_relevant(
     user_input: str,
     store: MemoryStore,
     client: LLMClient,
-) -> str:
-    """检索与用户报错相关的历史记忆，返回拼接好的 memory_section。
+) -> RecallResult:
+    """检索与用户报错相关的历史记忆，返回可注入 system-reminder 的正文。
 
-    Args:
-        user_input: 用户本轮报错描述
-        store: MemoryStore 实例
-        client: 复用的 LLM 客户端
-
-    Returns:
-        memory_section 字符串，可直接传入 build_system_prompt()
-        没有相关记忆时返回 ""
+    由 app.py / agent.run 在 user 消息之后通过 add_system_reminder() 注入。
+    没有相关记忆、超时或 API 失败时 reminder 为空，不阻塞诊断。
     """
     manifest = store.list_manifest()
     if not manifest or manifest == "(empty)":
-        return ""
+        return RecallResult(status="empty")
 
+    try:
+        reminder = await asyncio.wait_for(
+            _recall_with_selector(user_input, manifest, store, client),
+            timeout=RECALL_TIMEOUT_SEC,
+        )
+    except asyncio.TimeoutError:
+        return RecallResult(status="timeout")
+    except Exception:
+        return RecallResult(status="error")
+
+    if reminder:
+        return RecallResult(reminder=reminder, status="hit")
+    return RecallResult(status="empty")
+
+
+async def _recall_with_selector(
+    user_input: str,
+    manifest: str,
+    store: MemoryStore,
+    client: LLMClient,
+) -> str:
     user_message = (
         f"User bug report:\n{user_input}\n\n"
         f"Available memories:\n{manifest}"
@@ -62,40 +88,33 @@ async def recall_relevant(
     conv.add_user(user_message)
 
     collected = ""
-    try:
-        async for event in client.stream(
-            conv,
-            system=SELECTOR_SYSTEM_PROMPT,
-            tools=None,
-        ):
-            if isinstance(event, TextDelta):
-                collected += event.text
-            elif isinstance(event, StreamEnd):
-                pass
-    except Exception:
-        return ""
+    async for event in client.stream(
+        conv,
+        system=SELECTOR_SYSTEM_PROMPT,
+        tools=None,
+    ):
+        if isinstance(event, TextDelta):
+            collected += event.text
+        elif isinstance(event, StreamEnd):
+            pass
 
     selected = _parse_selector_response(collected)
     if not selected:
         return ""
 
     parts: list[str] = [MEMORY_INJECTION_HEADER]
+    injected = 0
     for i, filename in enumerate(selected, 1):
         content = store.read_memory(filename)
         if content is None:
             continue
-        fm = store.parse_frontmatter(content)
-        symptoms = fm.get("symptoms", "不清楚")
-        root_cause = fm.get("root_cause", "不清楚")
-        fix_approach = fm.get("fix_approach", "不清楚")
-        name = fm.get("name", filename.replace(".md", ""))
+        basename = Path(filename).name
+        parts.append(f"## 记忆 {i}: {basename}\n")
+        parts.append(content.strip())
+        parts.append("\n---\n")
+        injected += 1
 
-        parts.append(f"### 记忆 {i}: {name}\n")
-        parts.append(f"- 症状: {symptoms}\n")
-        parts.append(f"- 根因: {root_cause}\n")
-        parts.append(f"- 修复方向: {fix_approach}\n")
-
-    if len(parts) == 1:
+    if injected == 0:
         return ""
 
     parts.append(MEMORY_INJECTION_FOOTER)
@@ -110,6 +129,10 @@ def _parse_selector_response(raw: str) -> list[str]:
         if text.endswith("```"):
             text = text[:-3]
         text = text.strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end >= start:
+        text = text[start : end + 1]
     try:
         parsed = json.loads(text)
         arr = parsed.get("selected_memories", [])

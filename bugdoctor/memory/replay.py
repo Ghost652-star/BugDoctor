@@ -50,7 +50,7 @@ def print_restored_history(
             continue
 
         if msg.role == "user":
-            if not msg.content or msg.content.startswith("[system]"):
+            if not msg.content or msg.content.startswith("<system-reminder>"):
                 continue
             print(f"{BOLD}you>{RESET} {_truncate(msg.content, content_max_len)}")
             continue

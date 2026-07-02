@@ -14,7 +14,6 @@ from bugdoctor.llm.events import TextDelta, ToolCallComplete
 from bugdoctor.tools.base import ToolRegistry
 
 
-# ── Agent 对外事件（app.py 根据事件类型做不同展示） ──
 
 @dataclass
 class StreamText:
@@ -69,9 +68,16 @@ class Agent:
         self.system_prompt = system_prompt
         self.max_iterations = max_iterations
 
-    async def run(self, user_input: str) -> AsyncIterator[AgentEvent]:
+    async def run(
+        self,
+        user_input: str,
+        *,
+        memory_reminder: str | None = None,
+    ) -> AsyncIterator[AgentEvent]:
         """执行 ReAct 循环"""
         self.conversation.add_user(user_input)
+        if memory_reminder:
+            self.conversation.add_system_reminder(memory_reminder)
 
         for _ in range(self.max_iterations):  # 代码只控制轮数上限，每轮做什么由 LLM 决定
             # ── 1. 调 LLM（带工具列表） ──

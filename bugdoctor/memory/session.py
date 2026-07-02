@@ -104,11 +104,11 @@ def message_from_dict(data: dict[str, Any]) -> Message | None:
 
 
 class SessionStore:
-    """Append-only JSONL session storage under workspace/.bugdoctor/sessions/."""
+    """Session JSONL — {data_root}/.bugdoctor/sessions/（不存在则自动创建）"""
 
-    def __init__(self, workspace_root: Path) -> None:
-        self.workspace_root = workspace_root.resolve()
-        self.sessions_dir = self.workspace_root / SESSIONS_DIR
+    def __init__(self, data_root: Path) -> None:
+        self.data_root = data_root.resolve()
+        self.sessions_dir = self.data_root / SESSIONS_DIR
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
 
     def _jsonl_path(self, session_id: str) -> Path:
