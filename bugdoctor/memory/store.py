@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
-import yaml
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 from bugdoctor.llm.client import LLMClient
 
@@ -108,7 +110,7 @@ class MemoryStore:
         else:
             index_path.write_text(index_line, encoding="utf-8")
 
-    def parse_frontmatter(self, content: str) -> dict[str, str]:
+    def parse_frontmatter(self, content: str) -> dict[str, Any]:
         """从 YAML frontmatter 中提取字段"""
         m = FRONTMATTER_RE.match(content)
         if not m:
@@ -117,7 +119,7 @@ class MemoryStore:
             parsed = yaml.safe_load(m.group(1))
             if not isinstance(parsed, dict):
                 return {}
-            return {k: str(v) for k, v in parsed.items() if v}
+            return {k: v for k, v in parsed.items() if v}
         except yaml.YAMLError:
             return {}
 

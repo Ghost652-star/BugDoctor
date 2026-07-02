@@ -17,6 +17,8 @@ from bugdoctor.conversation.manager import ConversationManager
 from bugdoctor.llm.client import LLMError, create_client
 from bugdoctor.memory.replay import print_restored_history
 from bugdoctor.memory.session import SessionStore, choose_session_interactive
+from bugdoctor.memory.store import MemoryStore
+from bugdoctor.memory.recall import recall_relevant
 from bugdoctor.prompts.system import build_system_prompt
 from bugdoctor.tools.factory import create_registry
 
@@ -86,6 +88,7 @@ async def run_app(
 
     registry, read_tracker = create_registry(config.project_root)
     session_store = SessionStore(config.project_root)
+    memory_store = MemoryStore()
 
     if session_id:
         if not session_store.exists(session_id):
@@ -137,14 +140,22 @@ async def run_app(
 
         history_len = len(conversation.history)
         pending_stream: list[str] = []
+        has_tool_calls = False
         turn_ok = False
+
+        # ── 检索相关 Bug 模式记忆并注入 system prompt ──
+        memory_section = await recall_relevant(user_input, memory_store, client)
+        agent.system_prompt = build_system_prompt(
+            str(config.project_root),
+            memory_section=memory_section,
+        )
 
         async for event in agent.run(user_input):
             if isinstance(event, StreamText):
-                # 先缓冲，等知道本轮要不要调工具再决定怎么展示（避免无工具时重复打印两遍）
                 pending_stream.append(event.text)
 
             elif isinstance(event, ToolUseEvent):
+                has_tool_calls = True
                 if pending_stream:
                     print(f"{Style.THINKING}{''.join(pending_stream)}{Style.RESET}", end="", flush=True)
                     pending_stream.clear()
@@ -163,7 +174,6 @@ async def run_app(
                 chunk = "".join(pending_stream)
                 pending_stream.clear()
                 if chunk.strip():
-                    # TurnComplete = 本轮结束；无论是否调过工具，剩余文字都是正式回答
                     _print_final_answer(chunk)
                 print()
 
@@ -173,3 +183,31 @@ async def run_app(
         if turn_ok:
             new_messages = conversation.history[history_len:]
             session_store.append_messages(active_session_id, new_messages)
+
+            # ── 诊断结束后询问是否记住 ──
+            if has_tool_calls:
+                try:
+                    choice = input(f"\n{Style.YELLOW}记住这次诊断？[y/N]: {Style.RESET}").strip()
+                except (EOFError, KeyboardInterrupt):
+                    choice = ""
+                if choice.lower() == "y":
+                    user_reports = [
+                        msg.content
+                        for msg in conversation.history[history_len:]
+                        if msg.role == "user" and msg.content and not msg.tool_results
+                    ]
+                    diagnosis_texts = [
+                        msg.content
+                        for msg in conversation.history[history_len:]
+                        if msg.role == "assistant" and msg.content and not msg.tool_uses
+                    ]
+                    user_report = user_reports[0] if user_reports else user_input
+                    diagnosis_conclusion = diagnosis_texts[-1] if diagnosis_texts else ""
+
+                    if diagnosis_conclusion:
+                        print(f"{Style.THINKING}提取中...{Style.RESET}")
+                        name = await memory_store.extract_and_save(client, user_report, diagnosis_conclusion)
+                        if name:
+                            print(f"{Style.GREEN}已保存到记忆: {name}{Style.RESET}")
+                        else:
+                            print(f"{Style.THINKING}没有新的模式需要记录。{Style.RESET}")
