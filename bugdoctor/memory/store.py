@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import re
 import yaml
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 from bugdoctor.llm.client import LLMClient
 
@@ -138,7 +136,6 @@ class MemoryStore:
 
         # 调 LLM 提取（不流式，直接收完整回复）
         from bugdoctor.conversation.manager import ConversationManager
-        from bugdoctor.conversation.models import Message
         from bugdoctor.llm.events import TextDelta, StreamEnd
 
         conv = ConversationManager()
@@ -155,7 +152,7 @@ class MemoryStore:
             return ""  # 失败不阻塞主流程
 
         collected = collected.strip()
-        if not collected or "SKIP" in collected:
+        if not collected or collected.upper().strip() == "SKIP":
             return ""
 
         # 提取 name 字段
