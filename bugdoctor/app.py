@@ -143,12 +143,10 @@ async def run_app(
         has_tool_calls = False
         turn_ok = False
 
-        # ── 检索相关 Bug 模式记忆并注入 system prompt ──
+        # ── 检索相关 Bug 模式记忆，注入到消息上下文 ──
         memory_section = await recall_relevant(user_input, memory_store, client)
-        agent.system_prompt = build_system_prompt(
-            str(config.project_root),
-            memory_section=memory_section,
-        )
+        if memory_section:
+            conversation.add_system_reminder(memory_section)
 
         async for event in agent.run(user_input):
             if isinstance(event, StreamText):
