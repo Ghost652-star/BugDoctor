@@ -34,5 +34,9 @@ class ConversationManager:
             )
         )
 
+    def replace_history(self, new_messages: list[Message]) -> None:
+        """整体替换对话历史（压缩后使用）。"""
+        self.history = list(new_messages)
+
     def get_messages(self) -> list[Message]:
         return list(self.history)

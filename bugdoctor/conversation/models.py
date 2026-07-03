@@ -1,7 +1,22 @@
 from __future__ import annotations
 
+import json as _json
 from dataclasses import dataclass, field
 from typing import Any
+
+_CHARS_PER_TOKEN = 3.5
+
+
+def estimate_tokens(messages: list) -> int:
+    """粗略估算消息列表的 token 数——chars / 3.5。"""
+    total = 0
+    for msg in messages:
+        total += len(msg.content or "")
+        for tu in msg.tool_uses:
+            total += len(tu.tool_name) + len(_json.dumps(tu.arguments, ensure_ascii=False))
+        for tr in msg.tool_results:
+            total += len(tr.content)
+    return int(total / _CHARS_PER_TOKEN)
 
 
 @dataclass

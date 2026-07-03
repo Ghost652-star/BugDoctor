@@ -11,7 +11,7 @@ from colorama import Fore, Style as ColoramaStyle
 
 colorama.init()
 
-from bugdoctor.agent.loop import Agent, ErrorEvent, StreamText, ToolResultEvent, ToolUseEvent, TurnComplete
+from bugdoctor.agent.loop import Agent, CompactNotification, ErrorEvent, StreamText, ToolResultEvent, ToolUseEvent, TurnComplete
 from bugdoctor.config import app_data_root, load_config
 from bugdoctor.conversation.manager import ConversationManager
 from bugdoctor.llm.client import LLMError, create_client
@@ -114,6 +114,8 @@ async def run_app(
     try:
         client = create_client(config.llm)
         recall_client = create_client(config.recall_client_config())
+        compact_cfg = config.compact_client_config()
+        compact_client = create_client(compact_cfg) if compact_cfg else None
     except LLMError as exc:
         print(f"配置错误: {exc}")
         print("请在 bugdoctor/config.yaml 中设置 llm.api_key，或设置环境变量 BUGDOCTOR_API_KEY")
@@ -129,20 +131,23 @@ async def run_app(
             print(f"未找到会话: {session_id}")
             return
         history = session_store.load_history(session_id)
+        full_history = session_store.load_full_history(session_id)
         active_session_id = session_id
-        print(f"已恢复对话 {session_id}（{len(history)} 条消息）\n")
+        print(f"已恢复对话 {session_id}（{len(full_history)} 条消息）\n")
     elif new_session:
         active_session_id = session_store.create()
         history = []
+        full_history = []
         print(f"已创建新对话: {active_session_id}\n")
     else:
         active_session_id, history = choose_session_interactive(session_store)
+        full_history = session_store.load_full_history(active_session_id)
 
     conversation = ConversationManager(history=history)
-    read_tracker.restore_from_history(history, config.project_root)
+    read_tracker.restore_from_history(full_history, config.project_root)
 
-    if history:
-        print_restored_history(history)
+    if full_history:
+        print_restored_history(full_history)
 
     system_prompt = build_system_prompt(str(config.project_root))
     agent = Agent(
@@ -151,6 +156,8 @@ async def run_app(
         conversation=conversation,
         system_prompt=system_prompt,
         max_iterations=config.max_agent_iterations,
+        compact_client=compact_client,
+        compact_threshold=config.compact_threshold,
     )
 
     print(f"BugDoctor — model: {config.llm.model}")
@@ -219,6 +226,17 @@ async def run_app(
                 if chunk.strip():
                     _print_final_answer(chunk)
                 print()
+
+            elif isinstance(event, CompactNotification):
+                print(f"\n{Style.YELLOW}上下文过长 ({event.before_tokens}t)，压缩中... → {event.after_tokens}t{Style.RESET}\n")
+                # 1. JSONL 写 compact_boundary 标记
+                session_store.append_compact_boundary(
+                    active_session_id, event.summary, event.keep_count
+                )
+                # 2. 追加压缩后的全部 history（boundary_msg + tail）到 JSONL
+                session_store.append_messages(active_session_id, list(conversation.history))
+                # 3. 重置锚点，后续只追加本轮新消息
+                history_len = len(conversation.history)
 
             elif isinstance(event, ErrorEvent):
                 print(f"\n{Style.BOLD}{Style.RED}[错误] {event.message}{Style.RESET}\n")

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from bugdoctor.conversation.manager import ConversationManager
 from bugdoctor.conversation.models import ToolUseBlock
+from bugdoctor.context.compact import CompactEvent as CompactResult, auto_compact
 from bugdoctor.llm.client import LLMClient
 from bugdoctor.llm.events import TextDelta, ToolCallComplete
 from bugdoctor.tools.base import ToolRegistry
@@ -48,7 +49,16 @@ class ErrorEvent:
     message: str
 
 
-AgentEvent = StreamText | ToolUseEvent | ToolResultEvent | TurnComplete | ErrorEvent
+@dataclass
+class CompactNotification:
+    """Auto-compact 触发通知"""
+    before_tokens: int
+    after_tokens: int
+    summary: str = ""
+    keep_count: int = 0
+
+
+AgentEvent = StreamText | ToolUseEvent | ToolResultEvent | TurnComplete | ErrorEvent | CompactNotification
 
 
 class Agent:
@@ -61,12 +71,16 @@ class Agent:
         conversation: ConversationManager,
         system_prompt: str,
         max_iterations: int = 30,
+        compact_client: LLMClient | None = None,
+        compact_threshold: int = 0,
     ) -> None:
         self.client = client
         self.registry = registry
         self.conversation = conversation
         self.system_prompt = system_prompt
         self.max_iterations = max_iterations
+        self.compact_client = compact_client
+        self.compact_threshold = compact_threshold
 
     async def run(
         self,
@@ -80,6 +94,21 @@ class Agent:
             self.conversation.add_system_reminder(memory_reminder)
 
         for _ in range(self.max_iterations):  # 代码只控制轮数上限，每轮做什么由 LLM 决定
+            # ── 0. Auto-compact：每次 LLM 调用前检查上下文 ──
+            if self.compact_client and self.compact_threshold > 0:
+                result = await auto_compact(
+                    self.conversation,
+                    self.compact_client,
+                    self.compact_threshold,
+                )
+                if result is not None:
+                    yield CompactNotification(
+                        before_tokens=result.before_tokens,
+                        after_tokens=result.after_tokens,
+                        summary=result.summary,
+                        keep_count=result.keep_count,
+                    )
+
             # ── 1. 调 LLM（带工具列表） ──
             assistant_text = ""
             tool_calls: list[ToolCallComplete] = []

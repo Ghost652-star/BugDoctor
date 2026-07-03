@@ -74,6 +74,19 @@ def message_to_dict(message: Message) -> dict[str, Any]:
     return data
 
 
+def compact_boundary_dict(summary: str, keep_count: int) -> dict[str, Any]:
+    return {
+        "type": "compact_boundary",
+        "summary": summary,
+        "keep_count": keep_count,
+        "compacted_at": _now_iso(),
+    }
+
+
+def is_compact_boundary(data: dict[str, Any]) -> bool:
+    return data.get("type") == "compact_boundary"
+
+
 def message_from_dict(data: dict[str, Any]) -> Message | None:
     try:
         role = data["role"]
@@ -159,6 +172,39 @@ class SessionStore:
         return self._meta_path(session_id).exists() or self._jsonl_path(session_id).exists()
 
     def load_history(self, session_id: str) -> list[Message]:
+        """读取会话历史。如果 JSONL 中有 compact_boundary 记录，
+        只返回最后一条 compact_boundary 之后的消息（压缩后的精简版）。
+        """
+        path = self._jsonl_path(session_id)
+        if not path.exists():
+            return []
+        messages: list[Message] = []
+        last_boundary_idx = -1
+        all_lines = path.read_text(encoding="utf-8").splitlines()
+
+        for i, line in enumerate(all_lines):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if is_compact_boundary(data):
+                last_boundary_idx = i
+                continue
+            msg = message_from_dict(data)
+            if msg is not None:
+                messages.append(msg)
+
+        # 找到最后一条 boundary 的位置 → 只保留它之后的消息
+        if last_boundary_idx >= 0:
+            messages = _messages_after_index(all_lines, last_boundary_idx)
+
+        return messages
+
+    def load_full_history(self, session_id: str) -> list[Message]:
+        """读取全部历史（忽略 compact_boundary），用于终端展示。"""
         path = self._jsonl_path(session_id)
         if not path.exists():
             return []
@@ -171,10 +217,19 @@ class SessionStore:
                 data = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if is_compact_boundary(data):
+                continue
             msg = message_from_dict(data)
             if msg is not None:
                 messages.append(msg)
         return messages
+
+    def append_compact_boundary(self, session_id: str, summary: str, keep_count: int) -> None:
+        """在 JSONL 末尾写入 compact_boundary 标记。"""
+        path = self._jsonl_path(session_id)
+        record = compact_boundary_dict(summary, keep_count)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def append_messages(self, session_id: str, messages: list[Message]) -> None:
         if not messages:
@@ -209,6 +264,25 @@ class SessionStore:
                     break
 
         meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _messages_after_index(lines: list[str], boundary_idx: int) -> list[Message]:
+    """从 boundary 行之后解析 Message。"""
+    messages: list[Message] = []
+    for line in lines[boundary_idx + 1:]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if is_compact_boundary(data):
+            continue
+        msg = message_from_dict(data)
+        if msg is not None:
+            messages.append(msg)
+    return messages
 
 
 def choose_session_interactive(store: SessionStore) -> tuple[str, list[Message]]:

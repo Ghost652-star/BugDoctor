@@ -14,4 +14,14 @@ recall_llm:
   base_url: https://YOUR-INSTANCE.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
   max_output_tokens: 512
 
+# 可选：摘要压缩专用 LLM（不配则使用 recall_llm 或 llm）
+compact_llm:
+  provider: openai-compat
+  model: qwen3.7-plus
+  api_key: ""  # 或环境变量 BUGDOCTOR_COMPACT_API_KEY
+  base_url: https://YOUR-INSTANCE.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+  max_output_tokens: 2048
+
+compact_threshold: 8000
+
 max_agent_iterations: 30

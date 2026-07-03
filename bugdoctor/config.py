@@ -22,10 +22,20 @@ class AppConfig:
     project_root: Path
     max_agent_iterations: int = 30
     recall_llm: LLMConfig | None = None
+    compact_llm: LLMConfig | None = None
+    compact_threshold: int = 8000
 
     def recall_client_config(self) -> LLMConfig:
         """记忆检索专用 LLM；未配置时回退到主 llm。"""
         return self.recall_llm or self.llm
+
+    def compact_client_config(self) -> LLMConfig | None:
+        """摘要压缩专用 LLM；未配置时回退到主 llm。"""
+        if self.compact_llm is not None:
+            return self.compact_llm
+        if self.recall_llm is not None:
+            return self.recall_llm
+        return None
 
 
 def app_data_root() -> Path:
@@ -86,9 +96,18 @@ def load_config(project_root: Path, config_path: Path | None = None) -> AppConfi
             env_prefix="BUGDOCTOR_RECALL",
         )
 
+    compact_llm: LLMConfig | None = None
+    if "compact_llm" in data:
+        compact_llm = _parse_llm_config(
+            data.get("compact_llm", {}),
+            env_prefix="BUGDOCTOR_COMPACT",
+        )
+
     return AppConfig(
         llm=llm,
         project_root=project_root.resolve(),
         max_agent_iterations=int(data.get("max_agent_iterations", 30)),
         recall_llm=recall_llm,
+        compact_llm=compact_llm,
+        compact_threshold=int(data.get("compact_threshold", 8000)),
     )
