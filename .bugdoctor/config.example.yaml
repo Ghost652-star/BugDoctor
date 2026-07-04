@@ -1,0 +1,17 @@
+# BugDoctor 应用级配置（与 memory、sessions、skills 同级）
+# 复制为 config.yaml 或 config.local.yaml 后填写
+
+# MCP 服务器（可选）— Context7 示例
+# mcp_servers:
+#   - name: context7
+#     command: npx
+#     args: ["-y", "@upstash/context7-mcp"]
+#     env:
+#       CONTEXT7_API_KEY: "your-key"
+#
+# 或使用远程 HTTP：
+# mcp_servers:
+#   - name: context7
+#     url: https://mcp.context7.com/mcp
+#     headers:
+#       CONTEXT7_API_KEY: "your-key"
