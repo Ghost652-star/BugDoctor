@@ -103,7 +103,11 @@ class OpenAICompatClient(LLMClient):
 
 
 def create_client(config: LLMConfig) -> LLMClient:
-    """LLM 客户端工厂"""
+    """LLM 客户端工厂。"""
     if config.provider == "openai-compat":
         return OpenAICompatClient(config)
+    if config.provider == "anthropic":
+        from bugdoctor.llm.anthropic_client import AnthropicClient
+
+        return AnthropicClient(config)
     raise LLMError(f"Unsupported provider: {config.provider}")
